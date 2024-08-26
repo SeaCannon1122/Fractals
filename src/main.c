@@ -63,8 +63,8 @@ void control_thread_function(struct control_thread_args* args) {
            
             struct point2d_int mouse_pos = get_mouse_cursor_position(args->window);
 
-            args->pos->x += (mouse_pos.x - args->window->window_width / 2) * (*args->pixel_size - *args->pixel_size * powf(1.2f, -(double)scroll));
-            args->pos->y += -(mouse_pos.y - args->window->window_height / 2) * (*args->pixel_size - *args->pixel_size * powf(1.2f, -(double)scroll));
+            args->pos->x += (mouse_pos.x - args->window->window_width / 2) * (*args->pixel_size - *args->pixel_size * pow(1.2f, -(double)scroll));
+            args->pos->y += -(mouse_pos.y - args->window->window_height / 2) * (*args->pixel_size - *args->pixel_size * pow(1.2f, -(double)scroll));
 
             *args->pixel_size *= pow(1.2, -(double)scroll);
             *args->change_flag = true;
@@ -73,11 +73,11 @@ void control_thread_function(struct control_thread_args* args) {
         
 
         if ((get_key_state(KEY_PLUS) & 0b11) == 0b11) { 
-            *args->iterations += 256; 
+            *args->iterations += 64; 
             *args->change_flag = true;
         }
         if (((get_key_state(KEY_MINUS) & 0b11) == 0b11) && *args->iterations > 64) {
-            *args->iterations -= 256;
+            *args->iterations -= 64;
             *args->change_flag = true;
         }
 
