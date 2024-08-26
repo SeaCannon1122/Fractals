@@ -7,6 +7,7 @@ struct control_thread_args {
     int* iterations;
     int* radius;
     int* fractal_id;
+    bool* change_flag;
 };
 
 void control_thread_function(struct control_thread_args* args) {
@@ -17,7 +18,16 @@ void control_thread_function(struct control_thread_args* args) {
 
     bool console_shown = false;
 
+    int width = args->window->window_width;
+    int height = args->window->window_height;
+
     while (is_window_active(args->window)) {
+
+        if(args->window->window_width != width || args->window->window_height != height) {
+            width = args->window->window_width;
+            height = args->window->window_height;
+            *args->change_flag = true;
+        }
 
         if (get_key_state(KEY_MOUSE_LEFT) & 0b1) {
             struct point2d_int test_mouse_cords = get_mouse_cursor_position(args->window);
@@ -40,6 +50,8 @@ void control_thread_function(struct control_thread_args* args) {
                 args->pos->y - (double)(mouse_cords.y - new_mouse_cords.y) * *args->pixel_size ,
             };
 
+            *args->change_flag = true;
+
             mouse_cords = new_mouse_cords;
         }
 
@@ -52,31 +64,44 @@ void control_thread_function(struct control_thread_args* args) {
             args->pos->y += -(mouse_pos.y - args->window->window_height / 2) * (*args->pixel_size - *args->pixel_size * powf(1.2f, -(double)scroll));
 
             *args->pixel_size *= powf(1.2f, -(double)scroll);
+            *args->change_flag = true;
         }
 
         
 
-        if ((get_key_state(KEY_PLUS) & 0b11) == 0b11) *args->iterations += 64;
-        if (((get_key_state(KEY_MINUS) & 0b11) == 0b11) && *args->iterations > 64) *args->iterations -= 64;
+        if ((get_key_state(KEY_PLUS) & 0b11) == 0b11) { 
+            *args->iterations += 256; 
+            *args->change_flag = true;
+        }
+        if (((get_key_state(KEY_MINUS) & 0b11) == 0b11) && *args->iterations > 64) {
+            *args->iterations -= 256;
+            *args->change_flag = true;
+        }
 
-        if ((get_key_state('W') & 0b11) == 0b11) *args->radius += 1;
-        if (((get_key_state('S') & 0b11) == 0b11) && *args->radius > 1) *args->radius -= 1;
+        if ((get_key_state('W') & 0b11) == 0b11) { 
+            *args->radius += 1;
+            *args->change_flag = true;
+        }
+        if (((get_key_state('S') & 0b11) == 0b11) && *args->radius > 1) {
+            *args->radius -= 1;
+            *args->change_flag = true;
+        }
 
         if ((get_key_state('C') & 0b11) == 0b11) {
             if(console_shown) {console_shown = false; hide_console_window(); }
             else {console_shown = true; show_console_window(); }
         }
 
-        if ((get_key_state('0') & 0b11) == 0b11) *args->fractal_id = 0;
-        if ((get_key_state('1') & 0b11) == 0b11) *args->fractal_id = 1;
-        if ((get_key_state('2') & 0b11) == 0b11) *args->fractal_id = 2;
-        if ((get_key_state('3') & 0b11) == 0b11) *args->fractal_id = 3;
-        if ((get_key_state('4') & 0b11) == 0b11) *args->fractal_id = 4;
-        if ((get_key_state('5') & 0b11) == 0b11) *args->fractal_id = 5;
-        if ((get_key_state('6') & 0b11) == 0b11) *args->fractal_id = 6;
-        if ((get_key_state('7') & 0b11) == 0b11) *args->fractal_id = 7;
-        if ((get_key_state('8') & 0b11) == 0b11) *args->fractal_id = 8;
-        if ((get_key_state('9') & 0b11) == 0b11) *args->fractal_id = 9;
+        if ((get_key_state('0') & 0b11) == 0b11) { *args->fractal_id = 0; *args->change_flag = true; }
+        if ((get_key_state('1') & 0b11) == 0b11) { *args->fractal_id = 1; *args->change_flag = true; }
+        if ((get_key_state('2') & 0b11) == 0b11) { *args->fractal_id = 2; *args->change_flag = true; }
+        if ((get_key_state('3') & 0b11) == 0b11) { *args->fractal_id = 3; *args->change_flag = true; }
+        if ((get_key_state('4') & 0b11) == 0b11) { *args->fractal_id = 4; *args->change_flag = true; }
+        if ((get_key_state('5') & 0b11) == 0b11) { *args->fractal_id = 5; *args->change_flag = true; }
+        if ((get_key_state('6') & 0b11) == 0b11) { *args->fractal_id = 6; *args->change_flag = true; }
+        if ((get_key_state('7') & 0b11) == 0b11) { *args->fractal_id = 7; *args->change_flag = true; }
+        if ((get_key_state('8') & 0b11) == 0b11) { *args->fractal_id = 8; *args->change_flag = true; }
+        if ((get_key_state('9') & 0b11) == 0b11) { *args->fractal_id = 9; *args->change_flag = true; }
 
         printf("iterations: %d                                \n", *args->iterations);
         printf("radius: %d                                    \n", *args->radius);
@@ -85,8 +110,6 @@ void control_thread_function(struct control_thread_args* args) {
 
         sleep_for_ms(20);
     }
-
-    
 
 }
 
@@ -121,7 +144,9 @@ void Entry() {
 
     int id = 0;
 
-    struct control_thread_args args = {window, &pos, &pixel_size, &iterations, &radius, &id};
+    bool change_flag = true;
+
+    struct control_thread_args args = {window, &pos, &pixel_size, &iterations, &radius, &id, &change_flag};
 
     void* control_thread = create_thread(control_thread_function, &args);
 
@@ -159,16 +184,18 @@ void Entry() {
             resources = &mandelbrot_resources;
             break;
         }
-        int width = window->window_width;
-        int height = window->window_height;
-        unsigned int* data = render_fractal(resources, pos, pixel_size, width, height, iterations, radius);
 
-        struct point2d_int mp = get_mouse_cursor_position(window);
+        if (change_flag&& window->window_height != 0) {
+            int width = window->window_width;
+            int height = window->window_height;
+            unsigned int* data = render_fractal(resources, pos, pixel_size, width, height, iterations, radius);
 
-        draw_to_window(window, data, width, height);
+            draw_to_window(window, data, width, height);
 
-        free(data);
-
+            free(data);
+            change_flag = false;
+        }
+        
         sleep_for_ms(10);
 
     }
