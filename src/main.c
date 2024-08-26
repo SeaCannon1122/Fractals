@@ -120,20 +120,20 @@ void Entry() {
 
     struct window_state* window = create_window(200, 100, 700, 500, "Fractals");
 
-    char* src_mandelbrot = fractal_from_equation("mandelbrot",   "Re * Re                  -                     Im * Im                                + cRe", "2 * Re *                Im                                                            + cIm");
-    char* src_mandelbrot3 = fractal_from_equation("mandelbrot3", "Re * Re * Re             -  3 * Re *           Im * Im                                + cRe", "3 * Re * Re *           Im   -                Im * Im * Im                            + cIm");
-    char* src_mandelbrot4 = fractal_from_equation("mandelbrot4", "Re * Re * Re * Re        -  6 * Re * Re *      Im * Im   +     Im * Im * Im * Im      + cRe", "4 * Re * Re * Re *      Im   -  4 * Re *      Im * Im * Im                            + cIm");
-    char* src_mandelbrot5 = fractal_from_equation("mandelbrot5", "Re * Re * Re * Re * Re   - 10 * Re * Re * Re * Im * Im   + 5 * Im * Im * Im * Im * Re + cRe", "5 * Re * Re * Re * Re * Im   - 10 * Re * Re * Im * Im * Im   + Im * Im * Im * Im * Im + cIm");
-    
-    char* src_burning_ship = fractal_from_equation("burning_ship", "Re * Re - Im * Im + cRe", " 2.0 * fabs(Re * Im) + cIm");
-    char* src_feather = fractal_from_equation("feather", "((Re * Re * Re - 3 * Re * Im * Im) * (1 + Re * Re) + (3 * Re * Re * Im - Im * Im * Im) * (Im * Im)) / ((1 + Re * Re) * (1 + Re * Re) + (Im * Im) * (Im * Im)) + cRe", "((3 * Re * Re * Im - Im * Im * Im) * (1 + Re * Re) - (Re * Re * Re - 3 * Re * Im * Im) * (Im * Im))  / ((1 + Re * Re) * (1 + Re * Re) + (Im * Im) * (Im * Im)) + cIm");
+    char* src_mandelbrot[] = fractal_from_equation("mandelbrot", "Re * Re                  -                     Im * Im                                + cRe", "2 * Re *                Im                                                            + cIm");
+    char* src_mandelbrot3[] = fractal_from_equation("mandelbrot3", "Re * Re * Re             -  3 * Re *           Im * Im                                + cRe", "3 * Re * Re *           Im   -                Im * Im * Im                            + cIm");
+    char* src_mandelbrot4[] = fractal_from_equation("mandelbrot4", "Re * Re * Re * Re        -  6 * Re * Re *      Im * Im   +     Im * Im * Im * Im      + cRe", "4 * Re * Re * Re *      Im   -  4 * Re *      Im * Im * Im                            + cIm");
+    char* src_mandelbrot5[] = fractal_from_equation("mandelbrot5", "Re * Re * Re * Re * Re   - 10 * Re * Re * Re * Im * Im   + 5 * Im * Im * Im * Im * Re + cRe", "5 * Re * Re * Re * Re * Im   - 10 * Re * Re * Im * Im * Im   + Im * Im * Im * Im * Im + cIm");
+   
+    char* src_burning_ship[] = fractal_from_equation("burning_ship", "Re * Re - Im * Im + cRe", " 2.0 * fabs(Re * Im) + cIm");
+    char* src_feather[] = fractal_from_equation("feather", "((Re * Re * Re - 3 * Re * Im * Im) * (1 + Re * Re) + (3 * Re * Re * Im - Im * Im * Im) * (Im * Im)) / ((1 + Re * Re) * (1 + Re * Re) + (Im * Im) * (Im * Im)) + cRe", "((3 * Re * Re * Im - Im * Im * Im) * (1 + Re * Re) - (Re * Re * Re - 3 * Re * Im * Im) * (Im * Im))  / ((1 + Re * Re) * (1 + Re * Re) + (Im * Im) * (Im * Im)) + cIm");
 
-    void* mandelbrot_resources = setup_fractal(src_mandelbrot, "mandelbrot");
-    void* mandelbrot3_resources = setup_fractal(src_mandelbrot3, "mandelbrot3");
-    void* mandelbrot4_resources = setup_fractal(src_mandelbrot4, "mandelbrot4");
-    void* mandelbrot5_resources = setup_fractal(src_mandelbrot5, "mandelbrot5");
-    void* burning_ship_resources = setup_fractal(src_burning_ship, "burning_ship");
-    void* feather_resources = setup_fractal(src_feather, "feather");
+    void* mandelbrot_resources = setup_fractal(&src_mandelbrot[0], "mandelbrot");
+    void* mandelbrot3_resources = setup_fractal(&src_mandelbrot3[0], "mandelbrot3");
+    void* mandelbrot4_resources = setup_fractal(&src_mandelbrot4[0], "mandelbrot4");
+    void* mandelbrot5_resources = setup_fractal(&src_mandelbrot5[0], "mandelbrot5");
+    void* burning_ship_resources = setup_fractal(&src_burning_ship[0], "burning_ship");
+    void* feather_resources = setup_fractal(&src_feather[0], "feather");
     
     struct v2d_double pos = { 0.5, 0. };
 

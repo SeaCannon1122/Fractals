@@ -1,6 +1,7 @@
 #include "fractal.h"
 #include "openclutils.h"
 #include "utils.h"
+#include <CL/cl.h>
 
 struct fractal_render_resources {
     cl_context context;
@@ -8,9 +9,10 @@ struct fractal_render_resources {
     cl_program program;
     cl_kernel kernel;
     cl_device_id device;
+    bool double_support;
 };
 
-void* setup_fractal(const char* source, const char* kernel_name) {
+void* setup_fractal(const char** source, const char* kernel_name) {
     struct fractal_render_resources* setup = malloc(sizeof(struct fractal_render_resources));
 
     cl_platform_id platform;
@@ -22,7 +24,17 @@ void* setup_fractal(const char* source, const char* kernel_name) {
 
     CL_OBJECT_CALL( , setup->queue, clCreateCommandQueue(setup->context, setup->device, 0, &err));
 
-    CL_OBJECT_CALL( , setup->program, clCreateProgramWithSource(setup->context, 1, &source, NULL, &err));
+    char extensions[1024];
+    clGetDeviceInfo(setup->device, CL_DEVICE_EXTENSIONS, sizeof(extensions), extensions, NULL);
+
+    if (strstr(extensions, "cl_khr_fp64") == NULL) {
+        setup->double_support = false;
+        CL_OBJECT_CALL(, setup->program, clCreateProgramWithSource(setup->context, 1, &source[0], NULL, &err));
+    }
+    else {
+        setup->double_support = true;
+        CL_OBJECT_CALL(, setup->program, clCreateProgramWithSource(setup->context, 1, &source[1], NULL, &err));
+    }
 
     CL_CALL(clBuildProgram(setup->program, 1, &setup->device, NULL, NULL, NULL));
 
@@ -37,14 +49,32 @@ unsigned int* render_fractal(void* resources, struct v2d_double position, double
 
     CL_OBJECT_CALL(cl_mem, imageMemObj, clCreateBuffer(((struct fractal_render_resources*)resources)->context, CL_MEM_WRITE_ONLY, width * height * sizeof(unsigned int), NULL, &err));
     
-    CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 0, sizeof(cl_mem), (void*)&imageMemObj));
-    CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 1, sizeof(int), &width));
-    CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 2, sizeof(int), &height));
-    CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 3, sizeof(double), &pixel_size));
-    CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 4, sizeof(double), &position.x));
-    CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 5, sizeof(double), &position.y));
-    CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 6, sizeof(int), &max_iterations));
-    CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 7, sizeof(int), &divergence_radius));
+    if (((struct fractal_render_resources*)resources)->double_support) {
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 0, sizeof(cl_mem), (void*)&imageMemObj));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 1, sizeof(int), &width));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 2, sizeof(int), &height));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 3, sizeof(double), &pixel_size));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 4, sizeof(double), &position.x));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 5, sizeof(double), &position.y));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 6, sizeof(int), &max_iterations));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 7, sizeof(int), &divergence_radius));
+    }
+
+    else {
+
+        float posx = position.x;
+        float posy = position.y;
+        float ps = pixel_size;
+
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 0, sizeof(cl_mem), (void*)&imageMemObj));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 1, sizeof(int), &width));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 2, sizeof(int), &height));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 3, sizeof(float), &ps));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 4, sizeof(float), &posx));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 5, sizeof(float), &posy));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 6, sizeof(int), &max_iterations));
+        CL_CALL(clSetKernelArg(((struct fractal_render_resources*)resources)->kernel, 7, sizeof(int), &divergence_radius));
+    }
 
     size_t globalItemSize[2] = { width, height };
     CL_CALL(clEnqueueNDRangeKernel(((struct fractal_render_resources*)resources)->queue, ((struct fractal_render_resources*)resources)->kernel, 2, NULL, globalItemSize, NULL, 0, NULL, NULL));
