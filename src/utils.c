@@ -1,4 +1,5 @@
-#include "headers.h"
+#include "utils.h"
+#include "stdio.h"
 
 int string_length(char* str) {
     int len = 0;

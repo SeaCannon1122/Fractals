@@ -23,7 +23,3 @@ while ((get_key_state(KEY_ESCAPE) & 1) == 0) sleep_for_ms(100);\
 exit(1);\
 }\
 } while(0)
-
-cl_program create_program(cl_context context, cl_device_id device, const char* source);
-
-cl_kernel create_kernel(cl_program program, const char* kernel_name);

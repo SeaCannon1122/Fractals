@@ -1,4 +1,6 @@
-#include "headers.h"
+#include "fractal.h"
+#include "utils.h"
+#include "platform.h"
 
 struct control_thread_args {
     struct window_state* window;
@@ -58,12 +60,13 @@ void control_thread_function(struct control_thread_args* args) {
         int scroll = get_last_mouse_scroll();
 
         if (scroll) {
+           
             struct point2d_int mouse_pos = get_mouse_cursor_position(args->window);
 
             args->pos->x += (mouse_pos.x - args->window->window_width / 2) * (*args->pixel_size - *args->pixel_size * powf(1.2f, -(double)scroll));
             args->pos->y += -(mouse_pos.y - args->window->window_height / 2) * (*args->pixel_size - *args->pixel_size * powf(1.2f, -(double)scroll));
 
-            *args->pixel_size *= powf(1.2f, -(double)scroll);
+            *args->pixel_size *= pow(1.2, -(double)scroll);
             *args->change_flag = true;
         }
 
@@ -113,8 +116,6 @@ void control_thread_function(struct control_thread_args* args) {
 
 }
 
-#define cmul(Re, Im) ()
-
 void Entry() {
 
     struct window_state* window = create_window(200, 100, 700, 500, "Fractals");
@@ -127,12 +128,12 @@ void Entry() {
     char* src_burning_ship = fractal_from_equation("burning_ship", "Re * Re - Im * Im + cRe", " 2.0 * fabs(Re * Im) + cIm");
     char* src_feather = fractal_from_equation("feather", "((Re * Re * Re - 3 * Re * Im * Im) * (1 + Re * Re) + (3 * Re * Re * Im - Im * Im * Im) * (Im * Im)) / ((1 + Re * Re) * (1 + Re * Re) + (Im * Im) * (Im * Im)) + cRe", "((3 * Re * Re * Im - Im * Im * Im) * (1 + Re * Re) - (Re * Re * Re - 3 * Re * Im * Im) * (Im * Im))  / ((1 + Re * Re) * (1 + Re * Re) + (Im * Im) * (Im * Im)) + cIm");
 
-    struct fractal_render_resources mandelbrot_resources = setup_fractal(src_mandelbrot, "mandelbrot");
-    struct fractal_render_resources mandelbrot3_resources = setup_fractal(src_mandelbrot3, "mandelbrot3");
-    struct fractal_render_resources mandelbrot4_resources = setup_fractal(src_mandelbrot4, "mandelbrot4");
-    struct fractal_render_resources mandelbrot5_resources = setup_fractal(src_mandelbrot5, "mandelbrot5");
-    struct fractal_render_resources burning_ship_resources = setup_fractal(src_burning_ship, "burning_ship");
-    struct fractal_render_resources feather_resources = setup_fractal(src_feather, "feather");
+    void* mandelbrot_resources = setup_fractal(src_mandelbrot, "mandelbrot");
+    void* mandelbrot3_resources = setup_fractal(src_mandelbrot3, "mandelbrot3");
+    void* mandelbrot4_resources = setup_fractal(src_mandelbrot4, "mandelbrot4");
+    void* mandelbrot5_resources = setup_fractal(src_mandelbrot5, "mandelbrot5");
+    void* burning_ship_resources = setup_fractal(src_burning_ship, "burning_ship");
+    void* feather_resources = setup_fractal(src_feather, "feather");
     
     struct v2d_double pos = { 0.5, 0. };
 
@@ -152,36 +153,36 @@ void Entry() {
 
     while (is_window_active(window)) {
         
-        struct fractal_render_resources* resources;
+        void* resources;
 
         switch (id) {
             
         case 1:
-            resources = &mandelbrot_resources;
+            resources = mandelbrot_resources;
             break;
 
         case 2: 
-            resources = &mandelbrot3_resources;
+            resources = mandelbrot3_resources;
             break;
 
         case 3:
-            resources = &mandelbrot4_resources;
+            resources = mandelbrot4_resources;
             break;
 
         case 4:
-            resources = &mandelbrot5_resources;
+            resources = mandelbrot5_resources;
             break;
 
         case 5:
-            resources = &burning_ship_resources;
+            resources = burning_ship_resources;
             break;
 
         case 6:
-            resources = &feather_resources;
+            resources = feather_resources;
             break;
 
         default:
-            resources = &mandelbrot_resources;
+            resources = mandelbrot_resources;
             break;
         }
 
@@ -200,11 +201,11 @@ void Entry() {
 
     }
     
-    cleanup_fractal(&mandelbrot_resources);
-    cleanup_fractal(&mandelbrot3_resources);
-    cleanup_fractal(&mandelbrot4_resources);
-    cleanup_fractal(&burning_ship_resources);
-    cleanup_fractal(&feather_resources);  
+    cleanup_fractal(mandelbrot_resources);
+    cleanup_fractal(mandelbrot3_resources);
+    cleanup_fractal(mandelbrot4_resources);
+    cleanup_fractal(burning_ship_resources);
+    cleanup_fractal(feather_resources);  
 
     close_window(window);
 
