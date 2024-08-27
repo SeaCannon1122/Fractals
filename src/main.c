@@ -1,6 +1,10 @@
-#include "fractal.h"
-#include "utils.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
 #include "platform.h"
+#include "utils.h"
+#include "fractal.h"
 
 struct control_thread_args {
     struct window_state* window;

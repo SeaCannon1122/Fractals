@@ -1,7 +1,11 @@
-#include "fractal.h"
-#include "openclutils.h"
-#include "utils.h"
 #include <CL/cl.h>
+#include <stdlib.h>
+#include <string.h>
+#include "utils.h"
+#include "openclutils.h"
+#include "fractal.h"
+
+
 
 struct fractal_render_resources {
     cl_context context;
@@ -12,7 +16,7 @@ struct fractal_render_resources {
     bool double_support;
 };
 
-void* setup_fractal(const char** source, const char* kernel_name) {
+void* setup_fractal(char** source, char* kernel_name) {
     struct fractal_render_resources* setup = malloc(sizeof(struct fractal_render_resources));
 
     cl_platform_id platform;
@@ -29,11 +33,11 @@ void* setup_fractal(const char** source, const char* kernel_name) {
 
     if (strstr(extensions, "cl_khr_fp64") == NULL) {
         setup->double_support = false;
-        CL_OBJECT_CALL(, setup->program, clCreateProgramWithSource(setup->context, 1, &source[0], NULL, &err));
+        CL_OBJECT_CALL(, setup->program, clCreateProgramWithSource(setup->context, 1, (const char**) &source[0], NULL, &err));
     }
     else {
         setup->double_support = true;
-        CL_OBJECT_CALL(, setup->program, clCreateProgramWithSource(setup->context, 1, &source[1], NULL, &err));
+        CL_OBJECT_CALL(, setup->program, clCreateProgramWithSource(setup->context, 1, (const char**) &source[1], NULL, &err));
     }
 
     CL_CALL(clBuildProgram(setup->program, 1, &setup->device, NULL, NULL, NULL));

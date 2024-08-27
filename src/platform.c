@@ -548,6 +548,10 @@ struct window_state* create_window(int posx, int posy, int width, int height, un
 	return &(window_infos[window_infos_length - 1]->state);
 }
 
+bool is_window_selected(struct window_state* state) {
+	return true;
+}
+
 bool is_window_active(struct window_state* state) {
 	return ((struct window_info*)state->window_handle)->active;
 }
