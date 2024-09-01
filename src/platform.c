@@ -165,17 +165,11 @@ void draw_to_window(struct window_state* state, unsigned int* buffer, int width,
 
 	if (is_window_active(state) == false) return;
 
-	unsigned int* buffer_flipped = malloc(width * height * sizeof(unsigned int));
+	((struct window_info*)state->window_handle)->bitmapInfo.bmiHeader.biWidth = width;
+	((struct window_info*)state->window_handle)->bitmapInfo.bmiHeader.biHeight = -height;
 
-	for (int i = 0; i < width; i++) {
-		for (int j = 0; j < height; j++) {
-			buffer_flipped[i + width * j] = buffer[i + width * (height - j - 1)];
-		}
-	}
+	SetDIBitsToDevice(((struct window_info*)state->window_handle)->hdc, 0, 0, width, height, 0, 0, 0, height, buffer, &(((struct window_info*)state->window_handle)->bitmapInfo), DIB_RGB_COLORS);
 
-	SetDIBitsToDevice(((struct window_info*)state->window_handle)->hdc, 0, 0, width, height, 0, 0, 0, height, buffer_flipped, &(((struct window_info*)state->window_handle)->bitmapInfo), DIB_RGB_COLORS);
-
-	free(buffer_flipped);
 }
 
 struct point2d_int get_mouse_cursor_position(struct window_state* state) {
