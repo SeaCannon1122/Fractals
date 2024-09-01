@@ -436,6 +436,7 @@ bool window_infos_reorder = false;
 bool running;
 
 bool keyStates[256 * 256] = { false };
+int last_mouse_scroll = 0;
 
 bool mouseButtons[3] = { false, false, false };
 
@@ -444,7 +445,7 @@ void show_console_window() { return; }
 void hide_console_window() { return; }
 
 void set_console_cursor_position(int x, int y) {
-	// X11 does not have direct console cursor manipulation; this is a placeholder
+	printf("\033[%d;%dH", y, x);
 }
 
 void sleep_for_ms(unsigned int _time_in_milliseconds) {
@@ -505,11 +506,13 @@ char get_key_state(int key) {
 	return key_state;
 }
 
-int get_last_mouse_scroll() { return 0; }
+int get_last_mouse_scroll() {
+	int temp = last_mouse_scroll;
+	last_mouse_scroll = 0;
+	return temp;
+}
 
-void clear_mouse_scroll() { return; }
-
-//
+void clear_mouse_scroll() { last_mouse_scroll = 0; }
 
 struct window_state* create_window(int posx, int posy, int width, int height, unsigned char* name) {
 
@@ -539,7 +542,7 @@ struct window_state* create_window(int posx, int posy, int width, int height, un
 		}
 	};
 
-	XSelectInput(display, window, ExposureMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask);
+	XSelectInput(display, window, ExposureMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask | ButtonPressMask);
 	XStoreName(display, window, name);
 	XSetWMProtocols(display, window, &wm_delete_window, 1);
 	XMapWindow(display, window);
@@ -549,7 +552,12 @@ struct window_state* create_window(int posx, int posy, int width, int height, un
 }
 
 bool is_window_selected(struct window_state* state) {
-	return true;
+	Window focused_window;
+    int revert_to;
+    
+    XGetInputFocus(display, &focused_window, &revert_to);
+
+    return (focused_window == ((struct window_info*)state->window_handle)->window);
 }
 
 bool is_window_active(struct window_state* state) {
@@ -583,7 +591,7 @@ void draw_to_window(struct window_state* state, unsigned int* buffer, int width,
 	if (is_window_active(state) == false) return;
 	for (int i = 0; i < width && i < display_width; i++) {
 		for (int j = 0; j < height && j < display_height; j++) {
-			((struct window_info*)state->window_handle)->pixels[i + display_width * (height - j - 1)] = buffer[i + width * j];
+			((struct window_info*)state->window_handle)->pixels[i + display_width * j] = buffer[i + width * j];
 		}
 	}
 
@@ -599,7 +607,7 @@ struct point2d_int get_mouse_cursor_position(struct window_state* state) {
 
 	XQueryPointer(display, ((struct window_info*)state->window_handle)->window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask);
 
-	struct point2d_int pos = { win_x - 2, state->window_height - win_y + 1 };
+	struct point2d_int pos = { win_x +1, win_y + 1 };
 
 	return pos;
 }
@@ -644,10 +652,15 @@ void WindowControl() {
 						window_infos[index]->active = false;
 						XDestroyWindow(display, window_infos[index]->window);
 					}
+					break;
+				case ButtonPress:
+					if (event.xbutton.button == Button4) last_mouse_scroll++;
+					else if (event.xbutton.button == Button5) last_mouse_scroll--;
+					break;
 
 				}
+				
 			}
-
 			msg_check = false;
 
 		}

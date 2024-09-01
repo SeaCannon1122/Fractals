@@ -102,8 +102,8 @@ void Entry();
 #define KEY_TAB XK_Tab
 #define KEY_ENTER XK_Return
 #define KEY_CAPS_LOCK XK_Caps_Lock
-#define KEY_MINUS XK_KP_Subtract
-#define KEY_PLUS XK_KP_Add
+#define KEY_MINUS XK_minus
+#define KEY_PLUS XK_plus
 #define KEY_ARROW_LEFT XK_Left
 #define KEY_ARROW_RIGHT XK_Right
 #define KEY_ARROW_UP XK_Up

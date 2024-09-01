@@ -37,7 +37,8 @@ void control_thread_function(struct control_thread_args* args) {
 
         if (get_key_state(KEY_MOUSE_LEFT) & 0b1) {
             struct point2d_int test_mouse_cords = get_mouse_cursor_position(args->window);
-            
+            printf("x: %d y: %d", test_mouse_cords.x, test_mouse_cords.y);
+
             if (test_mouse_cords.x > 1 && test_mouse_cords.x < args->window->window_width - 2 && test_mouse_cords.y > 1 && test_mouse_cords.y < args->window->window_height - 2 && is_window_selected(args->window)) {
                 if (dragging == false) {
                     dragging = true;
