@@ -23,7 +23,9 @@ struct control_thread_args {
     char double_support;
 };
 
-void control_thread_function(struct control_thread_args* args) {
+void control_thread_function(void* args_void) {
+
+    struct control_thread_args* args = args_void;
 
     bool dragging = false;
 
