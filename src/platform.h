@@ -3,21 +3,22 @@
 
 #include <stdbool.h>
 
-struct window_state {
-	void* window_handle;
-	int window_width;
-	int window_height;
-};
+#define MAX_WINDOW_COUNT 1
+#define MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW 1
+
+#define WINDOW_CREATION_FAILED -1
+#define KEYBOARD_BUFFER_PARSER_CREATION_FAILED -1
 
 struct point2d_int {
 	int x;
 	int y;
 };
 
+void platform_init();
+void platform_exit();
+
 //general
-
 void show_console_window();
-
 void hide_console_window();
 
 void set_console_cursor_position(int x, int y);
@@ -26,7 +27,7 @@ void sleep_for_ms(unsigned int time_in_milliseconds);
 
 double get_time();
 
-void* create_thread(void* address, void* args);
+void* create_thread(void (address) (void*), void* args);
 
 void join_thread(void* thread_handle);
 
@@ -36,29 +37,30 @@ int get_last_mouse_scroll();
 
 void clear_mouse_scroll();
 
-//Window functions
+//window functions
 
-struct window_state* create_window(int posx, int posy, int width, int height, unsigned char* name);
+int create_window(int posx, int posy, int width, int height, unsigned char* name);
 
-bool is_window_selected(struct window_state* state);
+int get_window_width(int window);
+int get_window_height(int window);
 
-bool is_window_active(struct window_state* state);
+bool is_window_selected(int window);
 
-void close_window(struct window_state* state);
+bool is_window_active(int window);
 
-void draw_to_window(struct window_state* ws, unsigned int* buffer, int width, int height);
+void close_window(int window);
 
-struct point2d_int get_mouse_cursor_position(struct window_state* state);
+void draw_to_window(int window, unsigned int* buffer, int width, int height, int scalar);
 
-void set_cursor_rel_window(struct window_state* state, int x, int y);
+struct point2d_int get_mouse_cursor_position(int window);
+void set_cursor_rel_window(int window, int x, int y);
 
-//Entry Method
+int link_keyboard_parse_buffer(int window, char* buffer, int size, int used);
+void unlink_keyboard_parse_buffer(int window, int link);
 
-void Entry();
+//keysymbol Mapping
 
-//Keysymbol Mapping
-
-#if defined(_WIN64)
+#if defined(_WIN32)
 
 #include <windows.h>
 

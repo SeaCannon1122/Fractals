@@ -6,44 +6,36 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-struct window_info {
+struct {
 	HWND hwnd;
-	BITMAPINFO bitmapInfo;
-	HDC hdc;
 	bool active;
-	struct window_state state;
-};
+	int window_width;
+	int window_height;
+	struct {
+		char* buffer;
+		int buffer_size_width_termination;
+		int size_used;
+	} print_buffer[MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW];
+} window_resources[MAX_WINDOW_COUNT];
 
-struct window_to_create {
+struct {
 	int posx;
 	int posy;
 	int width;
 	int height;
 	unsigned char* name;
 	bool done_flag;
-	struct window_state* return_state;
-};
+	int window_resources_index;
+} next_window;
 
-struct window_info** window_infos;
-
-int window_infos_length = 0;
-int max_window_infos = 256;
-
-HINSTANCE HInstance;
-WNDCLASS wc;
-
-LARGE_INTEGER frequency;
-LARGE_INTEGER startTime;
+WNDCLASSW wc;
 
 bool keyStates[256] = { 0 };
 int last_mouse_scroll = 0;
 
 bool running = true;
-bool window_infos_reorder = false;
-bool msg_check = false;
 
-struct window_to_create next_window;
-
+void* window_control_thread;
 
 void show_console_window() {
 	HWND hwndConsole = GetConsoleWindow();
@@ -60,8 +52,7 @@ void hide_console_window() {
 }
 
 void set_console_cursor_position(int x, int y) {
-	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-	SetConsoleCursorPosition(hConsole, (COORD) { (SHORT)x, (SHORT)y });
+	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), (COORD) { (SHORT)x, (SHORT)y });
 }
 
 void sleep_for_ms(unsigned int _time_in_milliseconds) {
@@ -69,12 +60,14 @@ void sleep_for_ms(unsigned int _time_in_milliseconds) {
 }
 
 double get_time() {
-	LARGE_INTEGER current_time;
-	QueryPerformanceCounter(&current_time);
-	return (double)(current_time.QuadPart - startTime.QuadPart) * 1000 / (double)frequency.QuadPart;
+	LARGE_INTEGER frequency, start;
+	QueryPerformanceFrequency(&frequency);
+	QueryPerformanceCounter(&start);
+
+	return (double)1000 * ((double)start.QuadPart / (double)frequency.QuadPart);
 }
 
-void* create_thread(void* address, void* args) {
+void* create_thread(void (address)(void*), void* args) {
 	return CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)address, args, 0, NULL);
 }
 
@@ -90,10 +83,7 @@ char get_key_state(int key) {
 	SHORT currentKeyState = GetKeyState(key);
 
 	if (currentKeyState & 0x8000) keyState |= 0b0001;
-
 	if ((currentKeyState & 0x8000 ? 0x1 : 0x0) != keyStates[key]) keyState |= 0b0010;
-
-	//if (currentKeyState & 0x01) keyState |= 0b0100;
 
 	keyStates[key] = (currentKeyState & 0x8000 ? 0x1 : 0x0);
 
@@ -106,134 +96,139 @@ int get_last_mouse_scroll() {
 	return temp;
 }
 
-void clear_mouse_scroll() { last_mouse_scroll = 0; }
+void clear_mouse_scroll() {
+	last_mouse_scroll = 0; 
+}
 
-//
+//window functions
 
-struct window_state* create_window(int posx, int posy, int width, int height, unsigned char* name) {
+int create_window(int posx, int posy, int width, int height, unsigned char* name) {
 
-	next_window = (struct window_to_create){
-		posx,
-		posy,
-		width,
-		height,
-		name,
-		false,
-		NULL
-	};
+	int next_free_window_index = 0;
+	for (; next_free_window_index < MAX_WINDOW_COUNT; next_free_window_index++) if (window_resources[next_free_window_index].hwnd == NULL) break;
+	if (next_free_window_index == MAX_WINDOW_COUNT) return WINDOW_CREATION_FAILED;
+
+
+	next_window.posx = posx;
+	next_window.posy = posy;
+	next_window.width = width;
+	next_window.height = height;
+	next_window.name = name;
+	next_window.done_flag = false;
+	next_window.window_resources_index = next_free_window_index;
 
 	while (next_window.done_flag == false) Sleep(1);
 
-	return next_window.return_state;
+	return next_free_window_index;
 }
 
-bool is_window_selected(struct window_state* state) {
-	HWND hwndForeground = GetForegroundWindow();
-
-	return ((struct window_info*)state->window_handle)->hwnd == hwndForeground;
+int get_window_width(int window) {
+	return window_resources[window].window_width; 
 }
 
-bool is_window_active(struct window_state* state) {
-	return ((struct window_info*)state->window_handle)->active;
+int get_window_height(int window) { 
+	return window_resources[window].window_height; 
 }
 
-void close_window(struct window_state* state) {
-	if (is_window_active(state)) SendMessage(((struct window_info*)state->window_handle)->hwnd, WM_CLOSE, 0, 0);
-	while (((struct window_info*)state->window_handle)->active) sleep_for_ms(1);
+bool is_window_selected(int window) { 
+	return window_resources[window].hwnd == GetForegroundWindow(); 
+}
 
-	window_infos_reorder = true;
+bool is_window_active(int window) { 
+	return window_resources[window].active; 
+}
 
-	while (msg_check) Sleep(1);
+void close_window(int window) {
+	if (window_resources[window].active) SendMessage(window_resources[window].hwnd, WM_CLOSE, 0, 0);
+	while (window_resources[window].active) Sleep(1);
+	window_resources[window].hwnd = NULL;
+}
 
-	int index = 0;
+void draw_to_window(int window, unsigned int* buffer, int width, int height, int scalar) {
 
-	for (; index < window_infos_length && window_infos[index] != state->window_handle; index++);
+	if (window_resources[window].active == false) return;
 
-	free(window_infos[index]);
+	HDC hdc = GetDC(window_resources[window].hwnd);
 
-	window_infos_length--;
+	BITMAPINFO bitmapInfo;
 
-	for (int i = index; i < window_infos_length; i++) {
-		window_infos[i] = window_infos[i + 1];
-	}
+	bitmapInfo.bmiHeader.biWidth = width;
+	bitmapInfo.bmiHeader.biHeight = -height;
+	bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFO);
+	bitmapInfo.bmiHeader.biPlanes = 1;
+	bitmapInfo.bmiHeader.biBitCount = 32;
+	bitmapInfo.bmiHeader.biCompression = BI_RGB;
 
-	window_infos_reorder = false;
+	SetStretchBltMode(hdc, COLORONCOLOR);
+	StretchDIBits(hdc, 0, 0, width * scalar, height * scalar, 0, 0, width, height, buffer, &bitmapInfo, DIB_RGB_COLORS, SRCCOPY);
+
+	ReleaseDC(window_resources[window].hwnd, hdc);
 
 }
 
-void draw_to_window(struct window_state* state, unsigned int* buffer, int width, int height) {
+struct point2d_int get_mouse_cursor_position(int window) {
+	if (window_resources[window].hwnd != GetForegroundWindow()) return (struct point2d_int) {-1, -1};
 
-	if (is_window_active(state) == false) return;
-
-	((struct window_info*)state->window_handle)->bitmapInfo.bmiHeader.biWidth = width;
-	((struct window_info*)state->window_handle)->bitmapInfo.bmiHeader.biHeight = -height;
-
-	SetDIBitsToDevice(((struct window_info*)state->window_handle)->hdc, 0, 0, width, height, 0, 0, 0, height, buffer, &(((struct window_info*)state->window_handle)->bitmapInfo), DIB_RGB_COLORS);
-
-}
-
-struct point2d_int get_mouse_cursor_position(struct window_state* state) {
 	POINT position;
 	GetCursorPos(&position);
 	RECT window_rect;
-	GetWindowRect(((struct window_info*)state->window_handle)->hwnd, &window_rect);
+	GetWindowRect(window_resources[window].hwnd, &window_rect);
 
 	struct point2d_int pos = { position.x - window_rect.left - 7, position.y - window_rect.top - 29 };
 	return pos;
-
 }
 
-void set_cursor_rel_window(struct window_state* state, int x, int y) {
+void set_cursor_rel_window(int window, int x, int y) {
 	POINT position;
 	GetCursorPos(&position);
 	RECT window_rect;
-	GetWindowRect(((struct window_info*)state->window_handle)->hwnd, &window_rect);
+	GetWindowRect(window_resources[window].hwnd, &window_rect);
 
 	SetCursorPos(x + window_rect.left + 7, y + window_rect.top + 29);
+}
+
+int link_keyboard_parse_buffer(int window, char* buffer, int size, int used) {
+
+	int next_parser_index = 0;
+	for (; next_parser_index < MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW; next_parser_index++) if (window_resources[window].print_buffer[next_parser_index].buffer == NULL) break;
+	if (next_parser_index == MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW) return KEYBOARD_BUFFER_PARSER_CREATION_FAILED;
+
+	window_resources[window].print_buffer[next_parser_index].buffer = buffer;
+	window_resources[window].print_buffer[next_parser_index].buffer_size_width_termination = size;
+	window_resources[window].print_buffer[next_parser_index].size_used = used;
+
+	return next_parser_index;
+}
+
+void unlink_keyboard_parse_buffer(int window, int link) {
+	window_resources[window].print_buffer[link].buffer = NULL;
 }
 
 void WindowControl() {
 	while (running) {
 
-		msg_check = true;
+		for (int i = 0; i < MAX_WINDOW_COUNT; i++) {
 
-		while (window_infos_reorder) Sleep(1);
-
-		for (int i = 0; i < window_infos_length; i++) {
-
-			if (window_infos[i]->active) {
+			if (window_resources[i].active && window_resources[i].hwnd != NULL) {
 				MSG message;
-				while (PeekMessageW(&message, window_infos[i]->hwnd, 0, 0, PM_REMOVE)) {
+				while (PeekMessageW(&message, window_resources[i].hwnd, 0, 0, PM_REMOVE)) {
 					TranslateMessage(&message);
 					DispatchMessageW(&message);
 				}
 			}
 		}
 
-		msg_check = false;
-
 		//creating window
 
 		if (next_window.done_flag == false) {
-			int name_length = 0;
+			int name_length = 1;
 
-			for (; next_window.name[name_length] != '\0'; name_length++);
-			name_length++;
+			for (; next_window.name[name_length - 1] != '\0'; name_length++);
 
 			unsigned short* name_short = calloc(name_length, sizeof(unsigned short));
+			if (name_short == NULL) name_short = L"Error";
 
 			for (int i = 0; i < name_length; i++) *((char*)name_short + i * sizeof(unsigned short)) = next_window.name[i];
-
-			if (window_infos_length == max_window_infos) {
-				struct window_info** temp = window_infos;
-				window_infos = malloc(sizeof(void*) * (max_window_infos + 256));
-				for (int i = 0; i < max_window_infos; i++) window_infos[i] = temp[i];
-				max_window_infos += 256;
-				free(temp);
-			}
-
-			window_infos[window_infos_length] = (struct window_info*)malloc(sizeof(struct window_info));
-
 
 			HWND window = CreateWindowExW(
 				0,
@@ -246,28 +241,16 @@ void WindowControl() {
 				next_window.height,
 				NULL,
 				NULL,
-				HInstance,
+				GetModuleHandleA(NULL),
 				NULL
 			);
 
-			*window_infos[window_infos_length] = (struct window_info){
-				window,
-				{0},
-				GetDC(window),
-				true,
-				(struct window_state) {
-					window_infos[window_infos_length], next_window.width, next_window.height
-				}
-			};
+			window_resources[next_window.window_resources_index].hwnd = window;
+			for(int i = 0; i < MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW; i++) window_resources[next_window.window_resources_index].print_buffer[i].buffer = NULL;
+			window_resources[next_window.window_resources_index].active = true;
 
-			next_window.return_state = &(window_infos[window_infos_length]->state);
-
-			window_infos_length++;
-
+			SendMessage(window, WM_SIZE, 0, 0);
 			next_window.done_flag = true;
-
-			SendMessage(((struct window_info*)next_window.return_state->window_handle)->hwnd, WM_SIZE, 0, 0);
-
 		}
 
 		Sleep(10);
@@ -277,95 +260,64 @@ void WindowControl() {
 }
 
 LRESULT CALLBACK WinProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-	for (int i = 0; i < window_infos_length; i++) {
-		if (window_infos[i]->hwnd == hwnd) {
-			LRESULT result = 0;
+
+	for (int i = 0; i < MAX_WINDOW_COUNT; i++) {
+
+		if (window_resources[i].hwnd == hwnd && window_resources[i].hwnd != NULL) {
+
 			switch (uMsg) {
-			case WM_CLOSE:
+
+			case WM_CLOSE: {
 				DestroyWindow(hwnd);
+			} break;
+
+
 			case WM_DESTROY: {
 				PostQuitMessage(0);
-				window_infos[i]->active = false;
-
+				window_resources[i].active = false;
 			} break;
 
 			case WM_SIZE: {
 				RECT rect;
 				GetClientRect(hwnd, &rect);
-				window_infos[i]->state.window_width = rect.right - rect.left;
-				window_infos[i]->state.window_height = rect.bottom - rect.top;
-
-				window_infos[i]->bitmapInfo.bmiHeader.biSize = sizeof(window_infos[i]->bitmapInfo);
-				window_infos[i]->bitmapInfo.bmiHeader.biWidth = window_infos[i]->state.window_width;
-				window_infos[i]->bitmapInfo.bmiHeader.biHeight = window_infos[i]->state.window_height;
-				window_infos[i]->bitmapInfo.bmiHeader.biPlanes = 1;
-				window_infos[i]->bitmapInfo.bmiHeader.biBitCount = 32;
-				window_infos[i]->bitmapInfo.bmiHeader.biCompression = BI_RGB;
+				window_resources[i].window_width = rect.right - rect.left;
+				window_resources[i].window_height = rect.bottom - rect.top;
 			} break;
 
 			case WM_MOUSEWHEEL: {
 				int wheelDelta = GET_WHEEL_DELTA_WPARAM(wParam);
 
-				if (wheelDelta > 0) {
-					last_mouse_scroll++;
-				}
-				else if (wheelDelta < 0) {
-					last_mouse_scroll--;
+				if (wheelDelta > 0) last_mouse_scroll++;
+				else if (wheelDelta < 0) last_mouse_scroll--;
+			} break;
+
+			case WM_CHAR: {
+
+				for (int i = 0; i < MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW; i++) {
+					if (window_resources[i].print_buffer[i].buffer != NULL) {
+						char c = (char)wParam;
+						if (c >= ' ' && c <= '~' && window_resources[i].print_buffer[i].buffer_size_width_termination - 1 > window_resources[i].print_buffer[i].size_used) {
+							window_resources[i].print_buffer[i].buffer[window_resources[i].print_buffer[i].size_used] = c;
+							window_resources[i].print_buffer[i].size_used++;
+						}
+						else if (c == 0x08 /*delete*/ && window_resources[i].print_buffer[i].size_used != 0) {
+							window_resources[i].print_buffer[i].size_used--;
+							window_resources[i].print_buffer[i].buffer[window_resources[i].print_buffer[i].size_used] = '\0';
+						}
+					}
 				}
 
-				return 0;
+			} break;
+
 			}
 
-			default:
-				result = DefWindowProcW(hwnd, uMsg, wParam, lParam);
-			}
-
-			return result;
 		}
 	}
 
 	return DefWindowProcW(hwnd, uMsg, wParam, lParam);
-
 }
 
-void Entry_thread_function() {
-	Entry();
-	running = false;
-	return;
-}
-
-int WINAPI WinMain(
-	_In_	 HINSTANCE hInstance,
-	_In_opt_ HINSTANCE hPrevInstance,
-	_In_     LPSTR     lpCmdLine,
-	_In_     int       nShowCmd
-)
-
-{
-	(void)hInstance;
-	(void)hPrevInstance;
-	(void)lpCmdLine;
-	(void)nShowCmd;
-
-	QueryPerformanceFrequency(&frequency);
-	QueryPerformanceCounter(&startTime);
-
-	HInstance = hInstance;
-
-	wc = (WNDCLASS){
-		CS_HREDRAW | CS_VREDRAW | CS_CLASSDC,
-		WinProc,
-		0,
-		0,
-		hInstance,
-		NULL,
-		LoadCursorW(NULL, IDC_ARROW),
-		NULL,
-		NULL,
-		L"BasicWindowClass"
-	};
-
-	RegisterClassW(&wc);
+void platform_init() {
 
 	AllocConsole();
 	hide_console_window();
@@ -381,17 +333,32 @@ int WINAPI WinMain(
 	fflush(stderr);
 	fflush(stdin);
 
-	window_infos = (struct window_info**)malloc(sizeof(void*) * 256);
+	wc = (WNDCLASSW) {
+		CS_HREDRAW | CS_VREDRAW | CS_CLASSDC,
+		WinProc,
+		0,
+		0,
+		GetModuleHandleA(NULL),
+		NULL,
+		LoadCursorW(NULL, IDC_ARROW),
+		NULL,
+		NULL,
+		L"BasicWindowClass"
+	};
+
+	RegisterClassW(&wc);
 
 	next_window.done_flag = true;
 
-	void* main_thread = create_thread(Entry_thread_function, NULL);
+	window_control_thread = create_thread(WindowControl, NULL);
 
-	WindowControl();
+	return;
+}
 
-	join_thread(main_thread);
-
-	return 0;
+void platform_exit() {
+	for (int i = 0; i < MAX_WINDOW_COUNT; i++) if (window_resources[i].hwnd != NULL) close_window(i);
+	running = false;
+	join_thread(window_control_thread);
 }
 
 #elif defined(__linux__)
@@ -405,34 +372,37 @@ int WINAPI WinMain(
 #include <stdlib.h>
 #include <stdio.h>
 
-struct window_info {
+struct {
 	Window window;
 	XImage* image;
 	unsigned int* pixels;
 	bool active;
-	struct window_state state;
-};
+	int window_width;
+	int window_height;
+	struct {
+		char* buffer;
+		int buffer_size_width_termination;
+		int size_used;
+	} print_buffer[MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW];
+} window_resources[MAX_WINDOW_COUNT];
+
+char window_resources_active[MAX_WINDOW_COUNT] = { 0 };
 
 int display_width;
 int display_height;
-
-struct window_info** window_infos;
-
-int window_infos_length = 0;
-int max_window_infos = 256;
 
 Display* display;
 int screen;
 Atom wm_delete_window;
 
-bool msg_check = false;
-bool window_infos_reorder = false;
-bool running;
+bool running = true;
 
 bool keyStates[256 * 256] = { false };
 int last_mouse_scroll = 0;
 
 bool mouseButtons[3] = { false, false, false };
+
+void* window_control_thread;
 
 void show_console_window() { return; }
 
@@ -452,7 +422,7 @@ double get_time() {
 	return (double)tv.tv_sec * 1000 + (double)tv.tv_usec / 1000;
 }
 
-void* create_thread(void* address, void* args) {
+void* create_thread(void (address)(void*), void* args) {
 	pthread_t* thread = malloc(sizeof(pthread_t));
 	pthread_create(thread, NULL, (void* (*)(void*))address, args);
 	return thread;
@@ -508,17 +478,13 @@ int get_last_mouse_scroll() {
 
 void clear_mouse_scroll() { last_mouse_scroll = 0; }
 
-struct window_state* create_window(int posx, int posy, int width, int height, unsigned char* name) {
+int create_window(int posx, int posy, int width, int height, unsigned char* name) {
 
-	if (window_infos_length == max_window_infos) {
-		struct window_info** temp = window_infos;
-		window_infos = malloc(sizeof(void*) * (max_window_infos + 256));
-		for (int i = 0; i < max_window_infos; i++) window_infos[i] = temp[i];
-		max_window_infos += 256;
-		free(temp);
-	}
+	int next_free_window_index = 0;
+	for (; next_free_window_index < MAX_WINDOW_COUNT; next_free_window_index++) if (!window_resources_active[next_free_window_index]) break;
+	if (next_free_window_index == MAX_WINDOW_COUNT) return WINDOW_CREATION_FAILED;
 
-	window_infos[window_infos_length] = (struct window_info*)malloc(sizeof(struct window_info));
+	window_resources_active[next_free_window_index] = 1;
 
 	Window window = XCreateSimpleWindow(display, RootWindow(display, screen), posx, posy, width, height, 1, BlackPixel(display, screen), WhitePixel(display, screen));
 
@@ -526,97 +492,102 @@ struct window_state* create_window(int posx, int posy, int width, int height, un
 
 	XImage* image = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen), ZPixmap, 0, (char*)pixels, display_width, display_height, 32, 0);
 
-	*window_infos[window_infos_length] = (struct window_info){
-		window,
-		image,
-		pixels,
-		true,
-		(struct window_state) {
-			window_infos[window_infos_length], width, height
-		}
-	};
+	window_resources[next_free_window_index].window = window;
+	window_resources[next_free_window_index].image = image;
+	window_resources[next_free_window_index].pixels = pixels;
+	window_resources[next_free_window_index].active = true;
+	window_resources[next_free_window_index].window_width = width;
+	window_resources[next_free_window_index].window_height = height;
 
 	XSelectInput(display, window, ExposureMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask | ButtonPressMask);
 	XStoreName(display, window, name);
 	XSetWMProtocols(display, window, &wm_delete_window, 1);
 	XMapWindow(display, window);
-	window_infos_length++;
 
-	return &(window_infos[window_infos_length - 1]->state);
+	return next_free_window_index;
 }
 
-bool is_window_selected(struct window_state* state) {
+int get_window_width(int window) {
+	return window_resources[window].window_width;
+}
+
+int get_window_height(int window) {
+	return window_resources[window].window_height;
+}
+
+bool is_window_selected(int window) {
 	Window focused_window;
-    int revert_to;
-    
-    XGetInputFocus(display, &focused_window, &revert_to);
+	int revert_to;
 
-    return (focused_window == ((struct window_info*)state->window_handle)->window);
+	XGetInputFocus(display, &focused_window, &revert_to);
+
+	return focused_window == window_resources[window].window;
 }
 
-bool is_window_active(struct window_state* state) {
-	return ((struct window_info*)state->window_handle)->active;
+bool is_window_active(int window) {
+	return window_resources[window].active;
 }
 
-void close_window(struct window_state* state) {
-	if (is_window_active(state)) XDestroyWindow(display, ((struct window_info*)state->window_handle)->window);
+void close_window(int window) {
+	if (window_resources[window].active) XDestroyWindow(display, window_resources[window].window);
+	window_resources_active[window] = 0;
 
-	window_infos_reorder = true;
-
-	while (msg_check) usleep(10);
-
-	int index = 0;
-
-	for (; index < window_infos_length && window_infos[index] != state->window_handle; index++);
-
-	XDestroyImage(window_infos[index]->image);
-	free(window_infos[index]);
-
-	window_infos_length--;
-
-	for (int i = index; i < window_infos_length; i++) {
-		window_infos[i] = window_infos[i + 1];
-	}
-
-	window_infos_reorder = false;
+	XDestroyImage(window_resources[window].image);
 }
 
-void draw_to_window(struct window_state* state, unsigned int* buffer, int width, int height) {
-	if (is_window_active(state) == false) return;
-	for (int i = 0; i < width && i < display_width; i++) {
-		for (int j = 0; j < height && j < display_height; j++) {
-			((struct window_info*)state->window_handle)->pixels[i + display_width * j] = buffer[i + width * j];
+void draw_to_window(int window, unsigned int* buffer, int width, int height, int scalar) {
+	if (!window_resources[window].active) return;
+	for (int i = 0; i < width * scalar && i < display_width; i++) {
+		for (int j = 0; j < height * scalar && j < display_height; j++) {
+			window_resources[window].pixels[i + display_width * j] = buffer[i / scalar + width * (j / scalar)];
 		}
 	}
 
-	XPutImage(display, ((struct window_info*)state->window_handle)->window, DefaultGC(display, screen), ((struct window_info*)state->window_handle)->image, 0, 0, 0, 0, width, height);
+	XPutImage(display, window_resources[window].window, DefaultGC(display, screen), window_resources[window].image, 0, 0, 0, 0, width * scalar, height * scalar);
 }
 
-struct point2d_int get_mouse_cursor_position(struct window_state* state) {
-	if (is_window_active(state) == false) return (struct point2d_int) { -1, -1 };
+struct point2d_int get_mouse_cursor_position(int window) {
+	if (!window_resources[window].active) return (struct point2d_int) { -1, -1 };
 	Window root, child;
 	int root_x, root_y;
 	int win_x, win_y;
 	unsigned int mask;
 
-	XQueryPointer(display, ((struct window_info*)state->window_handle)->window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask);
+	XQueryPointer(display, window_resources[window].window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask);
 
-	struct point2d_int pos = { win_x +1, win_y + 1 };
+	struct point2d_int pos = { win_x + 1, win_y + 1 };
 
 	return pos;
 }
 
-void set_cursor_rel_window(struct window_state* state, int x, int y) {
-	if (is_window_active(state) == false) return;
+void set_cursor_rel_window(int window, int x, int y) {
+	if (!window_resources[window].active) return;
 	Window root, child;
 	int root_x, root_y;
 	int win_x, win_y;
 	unsigned int mask;
 
-	XQueryPointer(display, ((struct window_info*)state->window_handle)->window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask);
-	XWarpPointer(display, None, DefaultRootWindow(display), 0, 0, 0, 0, root_x - win_x + x + 2, root_y - win_y + state->window_height - y + 1);
-	XFlush(display); 
+	XQueryPointer(display, window_resources[window].window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask);
+	XWarpPointer(display, None, DefaultRootWindow(display), 0, 0, 0, 0, root_x - win_x + x + 2, root_y - win_y + window_resources[window].window_height - y + 1);
+	XFlush(display);
 	return;
+}
+
+int link_keyboard_parse_buffer(int window, char* buffer, int size, int used) {
+
+	int next_parser_index = 0;
+	for (; next_parser_index < MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW; next_parser_index++) if (window_resources[window].print_buffer[next_parser_index].buffer == NULL) break;
+	if (next_parser_index == MAX_KEYBOARD_BUFFER_PARSERS_PER_WINDOW) return KEYBOARD_BUFFER_PARSER_CREATION_FAILED;
+
+	window_resources[window].print_buffer[next_parser_index].buffer = buffer;
+	window_resources[window].print_buffer[next_parser_index].buffer_size_width_termination = size;
+	window_resources[window].print_buffer[next_parser_index].size_used = used;
+
+	return next_parser_index;
+}
+
+void unlink_keyboard_parse_buffer(int window, int link) {
+	window_resources[window].print_buffer[link].buffer = NULL;
 }
 
 void WindowControl() {
@@ -625,37 +596,56 @@ void WindowControl() {
 
 		while (XPending(display) && running) {
 
-			msg_check = true;
-
-			while (window_infos_reorder) usleep(10);
-
 			XNextEvent(display, &event);
 
 			int index = 0;
 
-			for (; index < window_infos_length && window_infos[index]->window != event.xany.window; index++);
+			for (; index < MAX_WINDOW_COUNT && window_resources[index].window != event.xany.window; index++);
 
-			if (window_infos[index]->active) {
+			if (window_resources[index].active) {
+
 				switch (event.type) {
-				case ConfigureNotify:
-					window_infos[index]->state.window_width = (event.xconfigure.width > display_width ? display_width : event.xconfigure.width);
-					window_infos[index]->state.window_height = (event.xconfigure.height > display_height ? display_height : event.xconfigure.height);
-					break;
-				case ClientMessage:
+
+				case ConfigureNotify: {
+					window_resources[index].window_width = (event.xconfigure.width > display_width ? display_width : event.xconfigure.width);
+					window_resources[index].window_height = (event.xconfigure.height > display_height ? display_height : event.xconfigure.height);
+				} break;
+
+				case ClientMessage: {
 					if ((Atom)event.xclient.data.l[0] == wm_delete_window) {
-						window_infos[index]->active = false;
-						XDestroyWindow(display, window_infos[index]->window);
+						window_resources[index].active = false;
+						XDestroyWindow(display, window_resources[index].window);
 					}
-					break;
-				case ButtonPress:
+				} break;
+
+				case ButtonPress: {
 					if (event.xbutton.button == Button4) last_mouse_scroll++;
 					else if (event.xbutton.button == Button5) last_mouse_scroll--;
-					break;
+				} break;
+
+				case KeyPress: {
+					KeySym keysym;
+					char buf[32];
+					int len = XLookupString(&event.xkey, buf, sizeof(buf), &keysym, NULL);
+					if (len > 0) {
+						for (int i = 0; i < len; ++i) {
+							unsigned char c = (unsigned char)buf[i];
+							if (c >= ' ' && c <= '~' && window_resources[i].print_buffer[i].buffer_size_width_termination - 1 > window_resources[i].print_buffer[i].size_used) {
+								window_resources[i].print_buffer[i].buffer[window_resources[i].print_buffer[i].size_used] = c;
+								window_resources[i].print_buffer[i].size_used++;
+							}
+							else if (c == 0x08 /*delete*/ && window_resources[i].print_buffer[i].size_used != 0) {
+								window_resources[i].print_buffer[i].size_used--;
+								window_resources[i].print_buffer[i].buffer[window_resources[i].print_buffer[i].size_used] = '\0';
+							}
+						}
+					}
+
+				} break;
 
 				}
-				
+
 			}
-			msg_check = false;
 
 		}
 
@@ -665,18 +655,13 @@ void WindowControl() {
 	return;
 }
 
-void Entry_thread_function() {
-	Entry();
-	running = false;
-}
-
-int main(int argc, char* argv[]) {
+void platform_init() {
 	XInitThreads();
 
 	display = XOpenDisplay(NULL);
 	if (display == NULL) {
 		fprintf(stderr, "Unable to open X display\n");
-		return 1;
+		return;
 	}
 
 	screen = DefaultScreen(display);
@@ -686,19 +671,15 @@ int main(int argc, char* argv[]) {
 
 	wm_delete_window = XInternAtom(display, "WM_DELETE_WINDOW", False);
 
-	window_infos = (struct window_info**)malloc(sizeof(void*) * 256);
+	window_control_thread = create_thread(WindowControl, NULL);
 
-	running = true;
+	return;
+}
 
-	void* mainthread = create_thread(Entry_thread_function, NULL);
-
-	WindowControl();
-
-	join_thread(mainthread);
-
+void platform_exit() {
+	running = false;
+	join_thread(window_control_thread);
 	XCloseDisplay(display);
-
-	return 0;
 }
 
 #endif 
